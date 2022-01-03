@@ -60,7 +60,7 @@ def train(args):
     if args.cuda and not args.tpu:
         print("running on cuda")
         device = torch.device("cuda")
-    if not args.cua and args.tpu:
+    if not args.cuda and args.tpu:
         print("running on tpu")
         device = xm.xla_device()
 
