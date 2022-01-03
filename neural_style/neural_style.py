@@ -11,6 +11,12 @@ from torch.utils.data import DataLoader
 from torchvision import datasets
 from torchvision import transforms
 import torch.onnx
+import torch_xla
+import torch_xla.core.xla_model as xm
+import torch_xla.debug.metrics as met
+import torch_xla.distributed.parallel_loader as pl
+import torch_xla.distributed.xla_multiprocessing as xmp
+import torch_xla.utils.utils as xu
 
 import utils
 from transformer_net import TransformerNet
@@ -29,20 +35,29 @@ def check_paths(args):
 
 
 def train(args):
-    device = torch.device("cuda" if args.cuda else "cpu")
-
+    
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
-    transform = transforms.Compose([
-        transforms.Resize(args.image_size),
-        transforms.CenterCrop(args.image_size),
-        transforms.ToTensor(),
-        transforms.Lambda(lambda x: x.mul(255))
-    ])
-    train_dataset = datasets.ImageFolder(args.dataset, transform)
-    
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size)
+    def get_dataset():
+        transform = transforms.Compose([
+            transforms.Resize(args.image_size),
+            transforms.CenterCrop(args.image_size),
+            transforms.ToTensor(),
+            transforms.Lambda(lambda x: x.mul(255))
+        ])
+        train_dataset = datasets.ImageFolder(args.dataset, transform)
+        return train_dataset
+        
+    train_dataset= get_dataset()
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=args.batch_size)
+
+    lr = args.lr * xm.xrt_world_size()
+
+    device = xm.xla_device() if args.tpu else torch.device("cuda" if args.cuda else "cpu")
+    #vgg = Vgg16(requires_grad=False)
 
     transformer = TransformerNet().to(device)
     optimizer = Adam(transformer.parameters(), args.lr)
@@ -196,12 +211,16 @@ def main():
                                   help="set it to 1 for running on GPU, 0 for CPU")
     train_arg_parser.add_argument("--seed", type=int, default=42,
                                   help="random seed for training")
+    train_arg_parser.add_argument("--num-workers", type=int, default=4,
+                                  help="number of workers used for training")
     train_arg_parser.add_argument("--content-weight", type=float, default=1e5,
                                   help="weight for content-loss, default is 1e5")
     train_arg_parser.add_argument("--style-weight", type=float, default=1e10,
                                   help="weight for style-loss, default is 1e10")
     train_arg_parser.add_argument("--lr", type=float, default=1e-3,
                                   help="learning rate, default is 1e-3")
+    train_arg_parser.add_argument("--tpu", type=int, required=True,
+                                  help="using tpu for training")
     train_arg_parser.add_argument("--log-interval", type=int, default=500,
                                   help="number of images after which the training loss is logged, default is 500")
     train_arg_parser.add_argument("--checkpoint-interval", type=int, default=2000,
