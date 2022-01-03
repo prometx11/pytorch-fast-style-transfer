@@ -48,15 +48,23 @@ def train(args):
         ])
         train_dataset = datasets.ImageFolder(args.dataset, transform)
         return train_dataset
-        
+
     train_dataset= get_dataset()
     train_loader = DataLoader(
         train_dataset,
         batch_size=args.batch_size)
 
     lr = args.lr * xm.xrt_world_size()
+    
+    device = torch.device("cpu")
+    if args.cuda and not args.tpu:
+        print("running on cuda")
+        device = torch.device("cuda")
+    if not args.cua and args.tpu:
+        print("running on tpu")
+        device = xm.xla_device()
 
-    device = xm.xla_device() if args.tpu else torch.device("cuda" if args.cuda else "cpu")
+    #device = xm.xla_device() if args.tpu else torch.device("cuda" if args.cuda else "cpu")
     #vgg = Vgg16(requires_grad=False)
 
     transformer = TransformerNet().to(device)
